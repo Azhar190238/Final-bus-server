@@ -83,6 +83,7 @@ async function run() {
             }
 
             const result = await userCollections.insertOne(user);
+            console.log('Login', user)
             res.status(200).send(result);
         });
 
@@ -103,6 +104,7 @@ async function run() {
                 res.status(500).send({ success: false, message: 'Error approving user', error });
             }
         });
+
 
         // Login
         app.post('/login', async (req, res) => {
@@ -126,7 +128,7 @@ async function run() {
 
                 const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
                 userToken = token;
-                res.status(200).send({ message: 'Login successful', token });
+                res.status(200).send({ message: 'Login successful', token, userId: user._id });
             } catch (error) {
                 res.status(500).send({ message: 'Login failed', error });
             }
@@ -138,11 +140,38 @@ async function run() {
         });
 
         // get user role for discount button
-        app.get('/user-role', verifyJWT, async (req, res) => {
-            if (req.user) {
-                res.status(200).send({ isLoggedIn: true, role: req.user.role });
-            } else {
-                res.status(200).send({ isLoggedIn: false, role: null });
+        app.get('/user-role/:userId', verifyJWT, async (req, res) => {
+            try {
+                const userId = req.params.userId;
+
+                if (!userId) {
+                    return res.status(400).send({ isLoggedIn: false, role: null, message: 'User ID is required' });
+                }
+
+                const user = await userCollections.findOne({ _id: new ObjectId(userId) });
+
+                if (user) {
+                    const role = user.role;
+
+                    if (role === 'master') {
+                        if (user.status === 'approved') {
+                            return res.status(200).send({ isLoggedIn: true, role: 'master' });
+                        } else {
+                            return res.status(200).send({ isLoggedIn: true, role: null, message: 'Master status not approved' });
+                        }
+                    }
+
+                    if (role === 'admin') {
+                        return res.status(200).send({ isLoggedIn: true, role: 'admin' });
+                    }
+
+                    return res.status(200).send({ isLoggedIn: true, role: role });
+                } else {
+                    return res.status(404).send({ isLoggedIn: false, role: null, message: 'User not found' });
+                }
+            } catch (error) {
+                console.error('Error fetching user role:', error);
+                return res.status(500).send({ isLoggedIn: false, role: null, error: 'Internal Server Error' });
             }
         });
 
@@ -198,16 +227,16 @@ async function run() {
                 var transporter = nodemailer.createTransport({
                     service: 'gmail',
                     auth: {
-                        user: '190237@ku.ac.bd',
-                        pass: 'afio mvyu nrrc urkv'
+                        user: 'kd.brtc144@gmail.com',
+                        pass: 'saqi lovw hahw iidx'
                     }
                 });
                 const token = jwt.sign({ id: existingUser._id, role: existingUser.role }, process.env.JWT_SECRET, { expiresIn: '5m' });
                 var mailOptions = {
-                    from: '190237@ku.ac.bd',
+                    from: 'kd.brtc144@gmail.com',
                     to: email,
                     subject: 'Reset Password',
-                    text: `http://localhost:5173/resetPassword/${token}`
+                    text: `https://koyrabrtc.com/resetPassword/${token}`
                 };
 
                 transporter.sendMail(mailOptions, function (error, info) {
@@ -256,6 +285,7 @@ async function run() {
             }
         });
 
+        // Payment integration
         app.post('/payment', async (req, res) => {
             const price = req.body.price;
             const name = req.body.name;
@@ -266,14 +296,16 @@ async function run() {
             const allocatedSeat = req.body.allocatedSeat;
             const busName = req.body.busName;
             const counterMaster = req.body.counterMaster
+            const selectedRoute = req.body.selectedRoute
+            const date = req.body.date
 
             const tran_id = new ObjectId().toString();
             const data = {
                 total_amount: price,
                 currency: 'BDT',
                 tran_id: tran_id,
-                success_url: `http://localhost:5000/payment/success/${tran_id}`,
-                fail_url: `http://localhost:5000/payment/fail/${tran_id}`,
+                success_url: `https://api.koyrabrtc.com/payment/success/${tran_id}`,
+                fail_url: `https://api.koyrabrtc.com/payment/fail/${tran_id}`,
                 cancel_url: 'http://localhost:3030/cancel',
                 ipn_url: 'http://localhost:3030/ipn',
                 shipping_method: 'Courier',
@@ -303,7 +335,7 @@ async function run() {
 
             const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
             sslcz.init(data).then(apiResponse => {
-                // console.log('API Response:', apiResponse); // Log full response for debugging
+
                 if (apiResponse.GatewayPageURL) {
                     // Redirect the user to payment gateway
                     let GatewayPageURL = apiResponse.GatewayPageURL;
@@ -320,14 +352,24 @@ async function run() {
                         tran_id: tran_id,
                         status: 'loading',
                         busName: busName,
-                        counterMaster: counterMaster
+                        counterMaster: counterMaster,
+                        selectedRoute: selectedRoute,
+                        date: date
                     }
                     const seat = {
+                        price: price,
+                        name: name,
+                        phone: phone,
+                        email: email,
+                        location: location,
+                        address: address,
                         allocatedSeat: allocatedSeat,
-                        status: 'loading',
                         tran_id: tran_id,
+                        status: 'loading',
                         busName: busName,
-                        counterMaster: counterMaster
+                        counterMaster: counterMaster,
+                        selectedRoute: selectedRoute,
+                        date: date
                     }
 
                     const result = orderCollections.insertOne(order);
@@ -358,7 +400,7 @@ async function run() {
                 }
             )
             if (result.modifiedCount > 0) {
-                res.redirect(`http://localhost:5173/payment/success/${req.params.tran_id}`)
+                res.redirect(`https://koyrabrtc.com/payment/success/${req.params.tran_id}`)
             }
         })
 
@@ -373,7 +415,7 @@ async function run() {
             );
 
             if (result.deletedCount > 0 && seat.deletedCount > 0) {
-                res.redirect(`http://localhost:5173/payment/fail/${req.params.tran_id}`);
+                res.redirect(`https://koyrabrtc.com/payment/fail/${req.params.tran_id}`);
             } else {
                 res.status(500).send({ message: 'Failed to delete order or seat data' });
             }
@@ -381,8 +423,16 @@ async function run() {
 
         // Get allocated seats with status 'paid'
         app.get('/allocated-seats/:busName', async (req, res) => {
+            const { busName } = req.params;
+            const { selectedDate } = req.query; // Get the selected date from the query parameters
+
             try {
-                const paidSeats = await orderCollections.find({ status: 'paid', busName: req.params.busName }).toArray();
+                const paidSeats = await orderCollections.find({
+                    status: 'paid',
+                    busName: busName,
+                    date: selectedDate // Filter by date as well
+                }).toArray();
+
                 res.status(200).send(paidSeats);
             } catch (error) {
                 console.error('Error fetching allocated seats:', error);
@@ -540,7 +590,7 @@ async function run() {
             res.send(result);
         })
 
-        // upadted or put operation
+        // updated or put operation
         app.put('/buses/:id', async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) }
@@ -631,14 +681,12 @@ async function run() {
             const { busName, seatId } = req.params;
 
             try {
-                // Find the order related to the seatId and busName
                 const order = await orderCollections.findOne({ _id: new ObjectId(seatId), busName: busName });
 
                 if (!order) {
                     return res.status(404).send({ message: 'Seat not found' });
                 }
 
-                // Remove the allocated seat from the order
                 const updatedOrder = await orderCollections.updateOne(
                     { _id: new ObjectId(seatId), busName: busName },
                     { $pull: { allocatedSeat: { $in: order.allocatedSeat } } }
@@ -667,6 +715,24 @@ async function run() {
             res.send(result);
         })
 
+        // Route to clear all seats for a specific bus
+        app.delete('/orders/clear-ala/:busName', async (req, res) => {
+            const { busName } = req.params;
+            console.log('Received busName:', busName);
+
+            try {
+                const result = await orderCollections.deleteMany({ busName: busName });
+
+                if (result.deletedCount > 0) {
+                    res.status(200).send({ message: `All allocated seats for bus ${busName} have been cleared.` });
+                } else {
+                    res.status(404).send({ message: `No orders found for bus ${busName}.` });
+                }
+            } catch (error) {
+                console.error('Error clearing allocated seats:', error.stack);  // Log full error stack
+                res.status(500).send({ message: 'Error clearing allocated seats', error });
+            }
+        });
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
